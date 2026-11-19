@@ -179,27 +179,21 @@ showstringspaces=false
 \hyphenation{pre-print}
 
 \begin{abstract}
-Our proposal was to post-train an inverse-design generator of genetic perturbations with
-reinforcement learning, using a forward oracle (GEARS) for a cycle-consistency term and for
-biological rewards. Preliminary measurements led us to change the formulation. We first find
-that the reward oracle, not the generator, limits this task: a parameter-free nearest-centroid
-match identifies the correct perturbation 86.6\% of the time, while ranking the same candidates
-by GEARS reaches 8.3\%, a gap of 78 points that generator post-training cannot close because
-the reward does not expose it. We therefore study a related problem on the same task that is
-better suited to reinforcement learning, in which the policy chooses which 100 of 437 candidate
-genes to measure so that a cheap predictor built from the measurements identifies the remaining
-genes. We implement three methods: REINFORCE over a Plackett--Luce policy, a learned critic
-used as a control variate, and a PPO feature policy with GRPO-style group-relative advantages.
-Given the information that greedy selection uses, all three improve on greedy and on published
-methods for the task, reaching $1.35$--$1.59\times$ random against greedy's $1.24\times$ and
-winning 85 of 90 paired comparisons. The improvement follows from a reward whose one-step
-signal correlates only $r{=}0.17$ with the quantity of interest, which a feature critic
-predicts at $r{=}0.26$. We also report a negative result: when candidate signatures are hidden
-until measured, five learned policies match a classical facility-location heuristic, a scale
-hypothesis for this is not supported, and the published active-learning methods for this screen
-fall below the heuristic. The result is a separation: observing candidate signatures is worth
-$1.35$--$1.59\times$, prior knowledge alone is worth $1.23$--$1.30\times$, and a classical
-heuristic already recovers it.
+We proposed to post-train an inverse-design generator of genetic perturbations with
+reinforcement learning, rewarded by a forward oracle (GEARS). Early measurements changed the
+plan: the oracle, not the generator, limits the task. Ranking candidate perturbations by a
+measured signature identifies the correct one 86.6\% of the time, while ranking by GEARS reaches
+8.3\%, so generator post-training has no headroom to recover. We instead study a problem on the
+same task that suits reinforcement learning: choosing which 100 of 437 genes to measure so that
+a cheap predictor identifies the rest. With the information that greedy selection uses,
+REINFORCE, a learned critic used as a control variate, and a PPO policy with GRPO-style
+advantages all improve on greedy and on published methods for the task ($1.35$--$1.59\times$
+random against greedy's $1.24\times$, winning 85 of 90 paired comparisons), because the reward's
+one-step signal correlates only $r{=}0.17$ with the quantity of interest, which a feature critic
+predicts at $r{=}0.26$. When candidate signatures are hidden until measured, every learned
+policy instead matches a classical facility-location heuristic; we report this as a negative
+result with an identified cause, namely that the limitation is the gene representation rather
+than the policy.
 \end{abstract}
 
 \begin{document}
@@ -208,24 +202,19 @@ heuristic already recovers it.
 
 \section{Project Overview and Motivation}
 
-Our goal is inverse design of genetic perturbations: given a desired target cell state, propose
-the perturbation or perturbations that produce it. We proposed to take a pretrained
-inverse-design generator and post-train it with reinforcement learning, using a forward oracle
-(GEARS~\citep{roohani2024gears}) for a cycle-consistency term and for rewards on properties that
-supervised models do not capture, such as selectivity, sparsity and pathway avoidance. The
-motivation is that wet-lab perturbation screens are expensive, and a model that proposes which
-experiment to run, under criteria that need not be differentiable, is a natural application of
-reinforcement learning~\citep{olivecrona2017reinvent}.
-
-Before implementing the training loop we measured the two quantities it depends on, the reward
-oracle and the headroom it leaves, and both indicated a different problem. First, the oracle
-limits the task rather than the generator (\Cref{sec:oracle}): a method driven by the oracle is
-bounded by the oracle's ability to tell candidates apart, and that ability is below a trivial
-lookup, so post-training the generator cannot recover headroom the reward does not expose.
-Second, the part of the problem that is suited to reinforcement learning is acquisition rather
-than generation (\Cref{sec:mdp}): choosing which perturbations to measure under a budget, so
-that a downstream predictor generalises to the rest, is a sequential decision problem with a
-discrete action space and a non-differentiable, high-variance reward. We keep the scientific
+Our goal is inverse design of genetic perturbations: given a target cell state, propose the
+perturbation that produces it. We proposed to post-train a pretrained inverse-design generator
+with reinforcement learning, using a forward oracle (GEARS~\citep{roohani2024gears}) for a
+cycle-consistency term and for rewards on properties supervised models ignore, such as
+selectivity and sparsity; a model that proposes which experiment to run, under criteria that
+need not be differentiable, is a natural application of reinforcement
+learning~\citep{olivecrona2017reinvent}. Before building the training loop we measured the two
+quantities it depends on, and both pointed elsewhere. The oracle limits the task rather than the
+generator (\Cref{sec:oracle}): a method driven by the oracle is bounded by its ability to tell
+candidates apart, which is below a trivial lookup. And the part suited to reinforcement learning
+is acquisition rather than generation (\Cref{sec:mdp}): choosing which perturbations to measure
+under a budget, so that a downstream predictor generalises to the rest, is a sequential decision
+problem with a discrete action space and a non-differentiable, high-variance reward. We keep the
 task and the use of reinforcement learning, and change the policy from proposing a perturbation
 to choosing the next measurement, which lets us compare it against standard baselines.
 
@@ -437,24 +426,19 @@ oracle margin is still to be measured.
 \section{Datasets, Environments, and Resources [2 points]}
 
 We use GEARS-processed Perturb-seq data: Replogle K562 and RPE1
-essential~\citep{replogle2022perturbseq}, with about 163{,}000 cells and 1{,}092 and 1{,}543
-perturbed conditions, the two action spaces large enough to be realistic, together with
+essential~\citep{replogle2022perturbseq} (about 163{,}000 cells; 1{,}092 and 1{,}543 perturbed
+conditions, the two action spaces large enough to be realistic), with
 Norman~\citep{norman2019gi}, Adamson~\citep{adamson2016upr}, Dixit~\citep{dixit2016perturbseq}
-and the GO graph for the feasibility analyses. All derived state is written to disk, as JSONL
-rows and npz arrays, so that figures can be redrawn without recomputation. The acquisition
-problem is an offline simulator: episodes are matrix operations over cached measured signatures,
-57 to 69 MB per dataset, with no GEARS forward pass in the loop. We use two fixed environments,
-one for analysis (scanpy and numpy 2.4) and one for GEARS (torch 2.4.1 with CUDA 12.1, PyG, and
-numpy below version 2, which GEARS requires because its data files use a numpy path removed in
-version 2). All work runs through SLURM as CPU jobs; the reinforcement-learning runs need no
-GPU, since they are offline matrix operations, so the main study is about 10 to 30
-CPU-core-hours.
+and the GO graph for the feasibility analyses. The acquisition problem is an offline simulator
+over cached measured signatures, with no GEARS forward pass, so the main study needs no GPU and
+runs as CPU jobs on SLURM, about 10 to 30 CPU-core-hours. Derived state is cached to disk so
+that figures redraw without recomputation, and GEARS runs in its own environment, pinned to
+numpy below version 2, which its data files require.
 
 \section{Updated Plan and Next Steps [5 points]}
 
 The remaining work tests whether the method extends to prospective design, measures the oracle
-rung on held-out data, and prepares the result for the poster and report. The schedule is in
-\Cref{tab:timeline}.
+rung on held-out data, and prepares the poster and report (\Cref{tab:timeline}).
 
 \begin{table}[htb]
 \centering
@@ -462,12 +446,11 @@ rung on held-out data, and prepares the result for the poster and report. The sc
 \toprule
 Dates & Work \\
 \midrule
-Nov 18--25 & Add gene features that predict effect (sequence, expression co-variation, pathway
-topology) inside the predictor and re-run the blind comparison; a blind policy can exceed
-facility location only if its features reflect effect. Ablate the critic control-variate weight
-and the GRPO group size, and add seeds to tighten the estimates. \\
-Nov 25--Dec 1 & Measure the oracle rung on held-out data, by retraining GEARS with a held-out
-split or substituting STATE~\citep{arcstate2026}, and prepare the poster. \\
+Nov 18--25 & Add effect-predicting gene features (sequence, expression, pathway topology) to the
+predictor and re-run the blind comparison; ablate the critic weight and GRPO group size, and add
+seeds. \\
+Nov 25--Dec 1 & Measure the oracle rung on held-out data (retrain GEARS, or substitute
+STATE~\citep{arcstate2026}); prepare the poster. \\
 Dec 2, Dec 4 & Poster sessions. \\
 Dec 5--7 & Final experiments and the project video (due Dec 7). \\
 Dec 8 & Final report. \\
@@ -477,13 +460,11 @@ Dec 8 & Final report. \\
 \label{tab:timeline}
 \end{table}
 
-Three risks remain. The open problem may stay negative, if richer representations also match
-facility location; a measured separation is already a result, and the favourable case is a
-representation that exceeds it. The sample size is small, which we address by reporting every
-number against its split's random distribution, with the 95th percentile and maximum, and by
-running greedy and the bound over seeds. Finally, returning to generation would enlarge the
-scope; the acquisition problem is the committed deliverable, and the comparison with
-LabCompass~\citep{labcompass2026} on a non-differentiable reward is a secondary goal.
+The main risk is that richer representations also match the facility-location baseline, in which
+case the measured separation stands as the result and the favourable case is a representation
+that exceeds it. We treat the small sample size by reporting every number against its split's
+random distribution and running greedy and the bound over seeds, and we keep the acquisition
+problem, not a return to generation, as the committed deliverable.
 
 \section{Team Contributions}
 
@@ -497,22 +478,18 @@ evaluation corrections, the writing, and the SLURM pipeline were shared.
 
 \section{Reflection and Feedback}
 
-The most useful lesson was procedural rather than algorithmic: measure the reward and the
-baseline before optimising. Without this we would have post-trained a generator against a reward
-that does not discriminate between candidates, and would have reported improvements over random
-at acquisition without noting that a classical heuristic, and the 15\% spread of the random
-distribution, were the relevant comparisons. We also saw why variance reduction matters here,
-since a reward correlating at 0.17 with its target reduces greedy's performance; that a one-step
-critic serves as a measure of reward quality; and that a group-relative baseline suits an
-episodic set reward with no per-step signal.
+The main lesson was procedural: measure the reward and the baseline before optimising. Without
+this we would have post-trained a generator against a reward that does not discriminate between
+candidates, and would have reported gains over random at acquisition without noting that a
+classical heuristic, and the 15\% spread of the random distribution, were the relevant
+comparisons. We also saw why variance reduction matters here, since a reward correlating at 0.17
+with its target reduces greedy's performance, and that a one-step critic doubles as a measure of
+reward quality.
 
-We would value feedback on three points. First, whether a measured separation together with a
-negative result that has an identified cause is an acceptable core contribution, or whether we
-should give more weight to the generator-versus-guidance comparison. Second, pointers to gene
-representations that encode effect rather than annotation, which is the input most likely to
-change the blind result. Third, a check on the evaluation protocol, with its three-way split and
-its scoring against the random distribution. Compute has not been a constraint, since the
-reinforcement learning is CPU-only, so our questions are methodological.
+We would value feedback on whether a measured separation with a negative result that has an
+identified cause is an acceptable core contribution, and on gene representations that encode
+effect rather than annotation, which is the input most likely to change the blind result.
+Compute has not been a constraint, so our questions are methodological.
 
 \bibliography{main,refs}
 
