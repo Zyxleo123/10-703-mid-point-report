@@ -180,15 +180,14 @@ showstringspaces=false
 \begin{abstract}
 We proposed to use reinforcement learning (RL) to fine-tune a model that designs genetic
 perturbations, with a forward model (GEARS) as the reward. Early measurements showed that this
-reward is the bottleneck. When candidate perturbations are ranked against a target using their
-measured effects, the correct one comes first 86.6\% of the time; when they are ranked using
-GEARS predictions, only 8.3\%. Fine-tuning a generator against this reward has little to gain.
+reward is the bottleneck: ranking candidates by their measured effects finds the right
+perturbation 86.6\% of the time, and ranking by GEARS predictions only 8.3\%, so fine-tuning a
+generator against it has little to gain.
 We therefore study a related problem that fits RL better: with a budget of 100 out of 437 genes,
 choose which genes to measure so that a simple predictor can identify the remaining genes. When
-a method may look at candidate measurements, as greedy selection does, three RL methods
-(REINFORCE, a learned critic that reduces the noise in greedy's estimates, and PPO with
-group-relative advantages) reach $1.35$--$1.59\times$ the random baseline, against $1.24\times$
-for greedy, and win 85 of 90 paired comparisons. They work because greedy's per-step reward is
+a method may look at candidate measurements, as greedy selection does, REINFORCE, a learned
+critic and PPO reach $1.35$--$1.59\times$ the random baseline, against $1.24\times$ for greedy,
+and win 85 of 90 paired comparisons. They work because greedy's per-step reward is
 noisy: it correlates only $r{=}0.17$ with a gene's true value, while the learned critic reaches
 $r{=}0.26$. When a gene's effect stays hidden until it is measured, no learned policy beats a
 classical facility-location heuristic. We report this as a negative result: the limit is what
@@ -207,8 +206,7 @@ design model with RL, using GEARS~\citep{roohani2024gears}, a model that predict
 perturbation's effect, to give rewards that supervised training cannot use directly, such as
 selectivity and sparsity~\citep{olivecrona2017reinvent}. Before building this, we measured how
 well the reward can tell candidates apart. It cannot (\Cref{sec:oracle}), so we moved RL to a
-part of the problem where it has room to help: deciding which perturbations to measure. We
-define both tasks below.
+part of the problem where it has room to help: deciding which perturbations to measure.
 
 \paragraph{Identification task.} A Perturb-seq screen perturbs one gene per cell and measures
 the expression of about 5{,}000 readout genes. The signature $\Delta_g\in\mathbb{R}^d$ of a
@@ -245,9 +243,8 @@ measured, as when planning real experiments.
 \subsection{The reward model is the bottleneck}
 \label{sec:oracle}
 
-We compare two ways of ranking the same candidates. The ceiling uses measured signatures. The
-GEARS score uses the signatures GEARS predicts; it bounds any method that relies on GEARS,
-whether a learned inverse model, a guided generator, or an RL policy rewarded by GEARS. On
+Ranking candidates by the signatures GEARS predicts bounds any method that relies on GEARS,
+including an RL policy rewarded by it. On
 Norman~\citep{norman2019gi} with a 128-cell target, the ceiling identifies the right perturbation
 86.6\% of the time and GEARS 8.3\% (Table~\ref{tab:ladder}). More cells raise the ceiling but
 leave GEARS near 10\%, so the limit is GEARS's prediction error, not noise in the target. GEARS
@@ -316,8 +313,7 @@ is noisy: with 25 reward genes, greedy raises its own reward to 0.72 but scores 
 genes, below random, and the gap closes as the reward uses more genes. Greedy's one-step gain
 correlates only $r{=}0.17$ with the same gene's gain on held-out genes (\Cref{fig:noise} shows
 one decision). Second, there is a lot of room: greedy reaches about $1.2\times$ random and the
-upper bound about $2\times$. Reducing reward noise and generalizing across reward sets are what
-RL methods are built for.
+upper bound about $2\times$.
 
 \subsection{Three RL methods}
 \label{sec:methods}
@@ -336,8 +332,7 @@ objective is not additive: adding a gene can push a better neighbour out of a ta
 \item A learned critic: is greedy's reward estimate too noisy? We fit a one-step value
 $\hat V_\phi(g)$, the held-out gain of measuring $g$, from gene features alone, and shrink
 greedy's measured gain towards it (a control variate). Greedy's gain correlates $r{=}0.17$ (0.14
-to 0.23) with the held-out gain; the critic reaches 0.26, and the two together 0.28. A gene's
-features predict its value better than measuring it on a few hundred visible genes.
+to 0.23) with the held-out gain; the critic reaches 0.26, and the two together 0.28.
 Critic-shrunk greedy beats greedy in 18 of 18 paired runs.
 \item PPO with group-relative advantages: does a general rule transfer? A small multilayer
 perceptron scores each candidate from 13 gene features in the peek setting, or 10 in the blind
@@ -372,18 +367,13 @@ repeats a gene already chosen.
 
 \Cref{fig:acq} shows the peek setting. The simple baselines reach $1.18$--$1.30\times$ random:
 facility location $1.23$ and $1.30$ (K562 and RPE1), and greedy using all reward genes $1.24$
-and $1.26$. Every RL method reaches $1.32$--$1.59\times$ and beats each split's 95th random
-percentile: REINFORCE $1.35$ and $1.59$, critic-shrunk greedy $1.38$ and $1.56$, and PPO $1.35$
-and $1.54$. They beat greedy in 85 of 90 paired comparisons, all 45 on RPE1, and roughly double
-the share of the upper bound's margin they capture, from 22--23\% to 34--48\%. All three
-explanations hold: REINFORCE optimizes the set as a whole, the critic raises the correlation
-from 0.17 to 0.26, and PPO transfers from training sub-problems to the full problem
-(\Cref{fig:curves}). Published methods for this task do not change the picture
+and $1.26$. Every RL method reaches $1.32$--$1.59\times$, beats each split's 95th random
+percentile, and beats greedy in 85 of 90 paired comparisons (all 45 on RPE1); PPO's rule
+transfers from training sub-problems to the full problem (\Cref{fig:curves}). Published methods for this task do not change the picture
 (\Cref{fig:related}). Data valuation (Data Shapley~\citep{ghorbani2019datashapley},
 Banzhaf~\citep{wang2023databanzhaf} and datamodels~\citep{ilyas2022datamodels}), given
 REINFORCE's number of reward evaluations, beats greedy ($1.22$--$1.31$ and $1.43$--$1.51\times$)
-but not the RL methods. A linear model explains 60\% of the reward's variance; the rest comes
-from interactions between genes, which optimizing the whole set captures. One example shows how
+but not the RL methods. One example shows how
 (\Cref{fig:flow,fig:anatomy}). ATP6V0C is never measured. REINFORCE measures ATP6V1B2, another
 subunit of the same V-ATPase complex (GO overlap 0.44, signature cosine 0.66), in all three
 seeds, and ATP6V0C's rank rises from 20 to 1 (to 2 in one seed). Facility location does not
@@ -393,13 +383,11 @@ diversity rule.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{figures/fig15_rl_acquisition.pdf}
-\caption{Acquisition with a budget of 100 of 437 genes on the two Replogle screens. Each score is
-the report-set MRR divided by the split's median over 100 random draws. Small marks are the nine
-split-and-seed runs and large marks their mean. The grey band is the random 5th--95th
-percentile, and the dashed line is the best run of the upper bound. In the peek setting (red)
-every RL method beats the baselines (grey diamonds) and the random 95th percentile. In the blind
-setting (blue), where a signature is seen only after measuring, the policy ties with GO facility
-location. Published methods are compared in \Cref{fig:related}.}
+\caption{Acquisition with a budget of 100 of 437 genes. Scores are report-set MRR divided by the
+split's median over 100 random draws; small marks are the nine split-and-seed runs, large marks
+their mean, the grey band the random 5th--95th percentile, and the dashed line the best
+upper-bound run. Peek (red): every RL method beats the baselines (grey diamonds). Blind (blue):
+the policy ties with GO facility location.}
 \label{fig:acq}
 \end{figure}
 
@@ -412,19 +400,14 @@ GO alone, and too few training genes. We tested each one and their combination (
 four tie with the baseline ($|t|\le1.4$, paired; the best is $t=+0.54$). The size explanation is
 wrong: matching the training size to the real problem lowered the policy's validation advantage
 over facility location from $1.085$ to $1.028\times$, so the earlier 5--13\% advantage was noise.
-Richer GO features do not help the static baseline either: IDF-weighted GO reaches $1.24$ and
-$1.24\times$, a GO embedding $1.19$ and $1.05\times$, and plain Jaccard $1.23$ and $1.30\times$.
 Published methods for this setting agree (\Cref{fig:related}). IterPert~\citep{huang2024iterpert},
-which was evaluated on this same screen, and its eight active-learning baselines
-(Core-Set~\citep{sener2018coreset}, BALD, BatchBALD, BADGE, LCMD, ACS-FW, k-means and TypiClust)
-all fall below the baseline, at 0.99--$1.18\times$ with $t$ from $-2.1$ to $-9.3$. IterPert
+which was evaluated on this same screen, and its eight active-learning baselines, such as
+Core-Set~\citep{sener2018coreset}, all fall below the baseline, at 0.99--$1.18\times$ with $t$ from $-2.1$ to $-9.3$. IterPert
 itself, at $1.02\times$, is no better than random on K562. Our blind PPO beats all of them. A
 two-by-two comparison shows why. The selection rule matters: replacing IterPert's k-centre rule
 with facility location gains $0.09$--$0.28\times$. The gene features do not: IterPert's eight
 priors (including protein language model, text, network and imaging features) do no better than
-GO Jaccard. In short, seeing candidate signatures is worth $1.35$--$1.59\times$, prior knowledge
-alone is worth $1.23$--$1.30\times$, and a classical heuristic already gets the latter. The limit
-is what the gene features say about a gene's effect, not the policy.
+GO Jaccard.
 
 \subsection{Key insights}
 \label{sec:insights}
@@ -461,15 +444,11 @@ perturbed genes, the two largest action spaces), plus Norman~\citep{norman2019gi
 Adamson~\citep{adamson2016upr}, Dixit~\citep{dixit2016perturbseq} and the GO graph for the
 analyses in \Cref{sec:oracle}. The acquisition task runs offline on cached measured signatures
 with no GEARS calls, so it needs no GPU: it runs as CPU jobs on SLURM, about 10--30 CPU-core-hours
-in total. Intermediate results are saved so that figures can be redrawn without recomputation.
-GEARS's data files need numpy below version 2, so it runs in its own environment. Its loader
+in total. GEARS's data files need numpy below version 2, so it runs in its own environment. Its loader
 also unpickles a 3.7\,GB cache that prediction never uses; skipping it cut start-up from over
 30 minutes to 11 seconds.
 
 \section{Updated Plan and Next Steps [5 points]}
-
-The remaining work tests whether better gene features help when signatures are hidden, measures
-GEARS on held-out data, and prepares the poster and report (\Cref{tab:timeline}).
 
 \begin{table}[htb]
 \centering
@@ -491,10 +470,9 @@ Dec 8 & Final report. \\
 \label{tab:timeline}
 \end{table}
 
-The main risk is that better gene features also tie with facility location. In that case the
-measured gap between the two settings is itself the result. Because samples are small, we report
-every number against its split's random distribution and run greedy and the upper bound over
-several seeds. The acquisition task stays the main focus; we will not return to training the
+\Cref{tab:timeline} lists the remaining work. The main risk is that better gene features also tie
+with facility location; in that case the measured gap between the two settings is itself the
+result. The acquisition task stays the main focus; we will not return to training the
 generator.
 
 \section{Team Contributions}
