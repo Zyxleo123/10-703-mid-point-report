@@ -418,6 +418,49 @@ GO Jaccard. In short, seeing candidate signatures is worth $1.35$--$1.59\times$,
 alone is worth $1.23$--$1.30\times$, and a classical heuristic already gets the latter. The limit
 is what the gene features say about a gene's effect, not the policy.
 
+\subsection{Key insights, unexpected results and implementation challenges}
+\label{sec:insights}
+
+\begin{analysisbox}[Key insights]
+\begin{itemize}[leftmargin=1.2em,itemsep=2pt,topsep=0pt]
+\item \textbf{The reward model, not the generator, is the bottleneck.} Measured signatures identify
+the right perturbation 86.6\% of the time and GEARS 8.3\%, so fine-tuning a generator against
+GEARS has little to gain (\Cref{sec:oracle}).
+\item \textbf{RL belongs in choosing what to measure.} Only unseen genes leave room to improve, and
+which genes are measured decides how well the rest are predicted.
+\item \textbf{RL wins because the per-step reward is noisy.} Greedy's one-step gain correlates only
+$r{=}0.17$ with a gene's real value. Optimizing the whole set, a critic ($r{=}0.26$) and a
+transferable PPO rule each address this, and together they beat greedy in 85 of 90 paired runs.
+\item \textbf{Without signatures, the gene features are the limit.} Prior knowledge is worth
+$1.23$--$1.30\times$ random, and a classical heuristic already gets all of it.
+\end{itemize}
+\end{analysisbox}
+
+\paragraph{Unexpected results.} GEARS predicts no better than the average effect of all
+perturbations, and unseen gene pairs are simply additive while GEARS, trained on those pairs,
+misses them (\Cref{sec:oracle}). Optimizing a noisy reward is worse than not optimizing: with 25
+reward genes, greedy scores 0.168 on held-out genes, below the random median of 0.178. IterPert,
+designed for this very screen, is no better than random on K562, and the advantage our blind
+policy first showed disappeared when we matched its training size to the real problem
+(\Cref{sec:blind}).
+
+\paragraph{Implementation challenges.}
+\begin{itemize}[leftmargin=1.2em,itemsep=1pt,topsep=1pt]
+\item \textit{Noisy baselines.} A random set of 100 genes varies by about 15\%. An early single
+random draw (0.218) sat near the maximum of 100 draws (0.221; median 0.178) and made greedy look
+no better than random, so every score is now relative to the median of 100 draws.
+\item \textit{Greedy is not reproducible.} GO Jaccard similarities have many ties, which numpy 1.26
+and 2.x break differently, so the same greedy run scored 0.221 in one environment and 0.190 in
+the other. We run greedy over several seeds and re-score every chosen set in one environment.
+\item \textit{Silent data errors.} Norman lists 47 of its 283 conditions twice (as X+ctrl and
+ctrl+X); merging them moved the ceiling from 71.7\% to 86.6\%. Its lists of most-changed genes use
+Ensembl IDs while the expression data uses gene names, which silently emptied the evaluation
+until we matched both.
+\item \textit{GEARS tooling.} Its data files need numpy below version 2, so it runs in its own
+environment, and its loader unpickles a 3.7\,GB cache that prediction never uses; skipping it
+cut start-up from over 30 minutes to 11 seconds.
+\end{itemize}
+
 \subsection{Limitations}
 
 Each setting uses three splits and three seeds, one predictor (GO-kNN) and one budget, so the
@@ -436,8 +479,6 @@ Adamson~\citep{adamson2016upr}, Dixit~\citep{dixit2016perturbseq} and the GO gra
 analyses in \Cref{sec:oracle}. The acquisition task runs offline on cached measured signatures
 with no GEARS calls, so it needs no GPU: it runs as CPU jobs on SLURM, about 10--30 CPU-core-hours
 in total. Intermediate results are saved so that figures can be redrawn without recomputation.
-GEARS runs in a separate environment pinned to numpy below version 2, which its data files
-require.
 
 \section{Updated Plan and Next Steps [5 points]}
 
@@ -477,11 +518,9 @@ All work in this report was done by Yixi Zhao.
 \section{Reflection and Feedback}
 
 The main lesson is to measure the reward and the baseline before optimizing. Otherwise we would
-have fine-tuned a generator against a reward that cannot tell candidates apart, and reported
-gains over random without noticing that a classical heuristic, and the 15\% spread of random
-sets, are the right comparisons. We also saw why variance reduction matters: a reward that
-correlates at 0.17 with the true value makes greedy worse than random, and a one-step critic
-doubles as a measure of reward quality.
+have fine-tuned a generator against a reward that cannot tell candidates apart, and compared
+against random instead of a classical heuristic. A one-step critic also turned out to be a
+useful measure of reward quality.
 
 We would value feedback on two points: whether a clear negative result with an identified cause
 is an acceptable main contribution, and which gene features describe a gene's effect rather than
