@@ -165,7 +165,7 @@ showstringspaces=false
 \definecolor{highlightcorrect}{RGB}{179, 255, 179}
 \newcommand{\rr}[1]{\textbf{\color{green}[RR: #1]}}
 
-\title{Post-training is only as good as its reward:\\ an RL acquisition problem inside genetic perturbation design}
+\title{Reinforcement learning for inverse design of genetic perturbations: from generator post-training to an acquisition problem}
 
 % \reportnumber{}
 
@@ -180,25 +180,26 @@ showstringspaces=false
 
 \begin{abstract}
 Our proposal was to post-train an inverse-design generator of genetic perturbations with
-RL, using a forward oracle (GEARS) for cycle-consistency and biological rewards. Measurement
-changed the formulation. We first show that the \emph{reward oracle}, not the generator, is
-the binding constraint: a parameter-free nearest-centroid match identifies the correct
-perturbation $86.6\%$ of the time, while ranking the same candidates by GEARS reaches $8.3\%$
---- a 78-point gap no amount of generator post-training can close, because the reward cannot
-see the headroom. We re-scope to a genuinely RL-shaped problem on the same task: a budgeted
-\emph{acquisition MDP} --- which $100$ of $437$ candidate genes to measure so that a cheap
-predictor built from the measurements best identifies the rest. We implement three RL methods
---- REINFORCE over a Plackett--Luce policy, a learned critic used as a control variate, and a
-PPO feature policy with GRPO-style group-relative advantages --- and, given the information
-greedy uses, all three beat greedy and every published method for the task
-($1.35$--$1.59\times$ random vs greedy's $1.24\times$, $85$ of $90$ paired wins). The gain is
-explained by a reward whose one-step signal correlates only $r{=}0.17$ with the quantity that
-matters, which a feature critic predicts at $r{=}0.26$. We also report a clean \emph{negative}
-result: in the prospective (blind) regime five learned policies tie a 1970s facility-location
-heuristic, the scale hypothesis we had for it is refuted, and the published active-learning
-methods for this screen all sit \emph{below} the heuristic. The honest statement is a
-separation --- seeing the candidates' signatures is worth $1.35$--$1.59\times$; prior
-knowledge alone is worth $1.23$--$1.30\times$, and a classical heuristic already extracts it.
+reinforcement learning, using a forward oracle (GEARS) for a cycle-consistency term and for
+biological rewards. Preliminary measurements led us to change the formulation. We first find
+that the reward oracle, not the generator, limits this task: a parameter-free nearest-centroid
+match identifies the correct perturbation 86.6\% of the time, while ranking the same candidates
+by GEARS reaches 8.3\%, a gap of 78 points that generator post-training cannot close because
+the reward does not expose it. We therefore study a related problem on the same task that is
+better suited to reinforcement learning, in which the policy chooses which 100 of 437 candidate
+genes to measure so that a cheap predictor built from the measurements identifies the remaining
+genes. We implement three methods: REINFORCE over a Plackett--Luce policy, a learned critic
+used as a control variate, and a PPO feature policy with GRPO-style group-relative advantages.
+Given the information that greedy selection uses, all three improve on greedy and on published
+methods for the task, reaching $1.35$--$1.59\times$ random against greedy's $1.24\times$ and
+winning 85 of 90 paired comparisons. The improvement follows from a reward whose one-step
+signal correlates only $r{=}0.17$ with the quantity of interest, which a feature critic
+predicts at $r{=}0.26$. We also report a negative result: when candidate signatures are hidden
+until measured, five learned policies match a classical facility-location heuristic, a scale
+hypothesis for this is not supported, and the published active-learning methods for this screen
+fall below the heuristic. The result is a separation: observing candidate signatures is worth
+$1.35$--$1.59\times$, prior knowledge alone is worth $1.23$--$1.30\times$, and a classical
+heuristic already recovers it.
 \end{abstract}
 
 \begin{document}
@@ -207,312 +208,311 @@ knowledge alone is worth $1.23$--$1.30\times$, and a classical heuristic already
 
 \section{Project Overview and Motivation}
 
-\textbf{Original goal.} Inverse design of genetic perturbations: given a desired target cell
-state, propose the perturbation(s) that produce it. We proposed to take a pretrained
-inverse-design generator and \emph{post-train it with RL}, using a forward oracle
-(GEARS~\citep{roohani2024gears}) for a cycle-consistency term and rewards for properties
-supervised models ignore (selectivity, sparsity, pathway avoidance). The motivation is real:
-wet-lab screens are expensive, and a model that proposes \emph{which} experiment to run,
-optimised for arbitrary non-differentiable criteria, is the kind of black-box-reward problem
-RL is for~\citep{olivecrona2017reinvent}.
+Our goal is inverse design of genetic perturbations: given a desired target cell state, propose
+the perturbation or perturbations that produce it. We proposed to take a pretrained
+inverse-design generator and post-train it with reinforcement learning, using a forward oracle
+(GEARS~\citep{roohani2024gears}) for a cycle-consistency term and for rewards on properties that
+supervised models do not capture, such as selectivity, sparsity and pathway avoidance. The
+motivation is that wet-lab perturbation screens are expensive, and a model that proposes which
+experiment to run, under criteria that need not be differentiable, is a natural application of
+reinforcement learning~\citep{olivecrona2017reinvent}.
 
-\textbf{What changed, and why.} Before building the RL loop we measured the two things it
-depends on --- the reward oracle, and the headroom it leaves --- and both redirected the
-project toward a sharper problem. The oracle is the bottleneck, not the generator
-(\Cref{sec:oracle}): any oracle-driven method is capped by the oracle's discrimination, which
-sits far below a trivial lookup baseline, so post-training a \emph{generator} cannot recover
-headroom the \emph{reward} cannot see. And the genuinely RL-shaped sub-problem on the same
-scientific task is \emph{acquisition}, not generation (\Cref{sec:mdp}): deciding which
-perturbations to measure under a budget, so a downstream predictor generalises to the rest, is
-a combinatorial MDP with a discrete action space and a non-differentiable, high-variance
-reward --- exactly where variance reduction, learned baselines and policy generalisation are
-the tools. We keep the scientific target and the RL commitment, but move the policy from
-``generate a perturbation'' to ``choose the next measurement,'' which makes the RL
-contribution measurable against honest baselines rather than asserted.
+Before implementing the training loop we measured the two quantities it depends on, the reward
+oracle and the headroom it leaves, and both indicated a different problem. First, the oracle
+limits the task rather than the generator (\Cref{sec:oracle}): a method driven by the oracle is
+bounded by the oracle's ability to tell candidates apart, and that ability is below a trivial
+lookup, so post-training the generator cannot recover headroom the reward does not expose.
+Second, the part of the problem that is suited to reinforcement learning is acquisition rather
+than generation (\Cref{sec:mdp}): choosing which perturbations to measure under a budget, so
+that a downstream predictor generalises to the rest, is a sequential decision problem with a
+discrete action space and a non-differentiable, high-variance reward. We keep the scientific
+task and the use of reinforcement learning, and change the policy from proposing a perturbation
+to choosing the next measurement, which lets us compare it against standard baselines.
 
 \section{Progress and Technical Work So Far [13 points]}
 
-\subsection{From generation to acquisition: the reward, not the generator, is the bottleneck}
+\subsection{The reward oracle limits the task}
 \label{sec:oracle}
 
-The first thing we measured said to post-train a \emph{policy}, not a generator. On one task
---- given a target state (pseudo-bulk of pooled held-out cells), rank the candidate
-perturbations --- we score three rungs so they subtract: a \emph{ceiling} that ranks by the
-$\Delta$-signature \emph{measured} from a disjoint half of the cells, and an \emph{oracle} rung
-that ranks by the signature GEARS \emph{predicts} (every oracle-driven method --- supervised
-inverse map, guided flow, or an RL policy rewarded by the oracle --- is capped here). On
-Norman~\citep{norman2019gi} with a 128-cell target the ceiling is $86.6\%$ top-1 and GEARS is
-$8.3\%$ (Table~\ref{tab:ladder}); pooling more cells raises the ceiling and leaves the oracle
-flat near $10\%$, so the limit is prediction error, not target noise. GEARS does not even beat
-a predictor that ignores \emph{which} perturbation was applied (median cosine $0.691$ vs
-$0.696$; it wins $44.8\%$ of conditions).
+We evaluate one task: given a target state, the pseudo-bulk of a set of held-out cells, rank the
+candidate perturbations. We measure three quantities on it so that they can be compared
+directly. The ceiling ranks candidates by the signature measured from a disjoint half of the
+cells. The oracle rung ranks them by the signature GEARS predicts, and bounds any method driven
+by the oracle, whether a supervised inverse map, a guided flow, or a policy rewarded by the
+oracle. On Norman~\citep{norman2019gi}, with a 128-cell target, the ceiling is 86.6\% top-1 and
+the GEARS rung is 8.3\% (Table~\ref{tab:ladder}). Pooling more cells raises the ceiling and
+leaves the oracle near 10\%, so the limit is the oracle's prediction error rather than noise in
+the target. GEARS also does not exceed a predictor that ignores which perturbation was applied:
+the median cosine to the measured effect is 0.691 for GEARS and 0.696 for the average effect,
+and GEARS is better on 44.8\% of conditions.
 
 \begin{table}[h]
 \centering\small
 \begin{tabular}{rrrrr}
 \toprule
-Cells pooled & Ceiling & GEARS oracle & Gap (pts) & Median rank (ceil $\to$ oracle)\\
+Cells pooled & Ceiling & GEARS oracle & Gap (pts) & Median rank (ceiling to oracle)\\
 \midrule
-1   & 25.4\% & 4.2\% & 21.2 & 6 $\to$ 36\\
-32  & 73.9\% & 11.4\% & 62.5 & 1 $\to$ 12\\
-\textbf{128} & \textbf{86.6\%} & \textbf{8.3\%} & \textbf{78.3} & \textbf{1 $\to$ 13}\\
+1   & 25.4\% & 4.2\% & 21.2 & 6 to 36\\
+32  & 73.9\% & 11.4\% & 62.5 & 1 to 12\\
+128 & 86.6\% & 8.3\% & 78.3 & 1 to 13\\
 \bottomrule
 \end{tabular}
-\caption{Inverse-design ladder on Norman (rank 230 candidates). The ceiling climbs with more
-cells; the oracle does not. Any method rewarded by GEARS lives on the oracle rung.}
+\caption{Inverse-design ladder on Norman, ranking 230 candidates. The ceiling rises with more
+cells; the oracle does not. Any method rewarded by GEARS is bounded by the oracle rung.}
 \label{tab:ladder}
 \end{table}
 
-A perturbation already in the atlas needs no model --- inverse design is a lookup --- so
-headroom lives only where a candidate is \emph{absent}, and of the three ways that happens only
-the \emph{unseen gene} axis is a real gap (\Cref{fig:headroom}, appendix): unseen pairs are
-arithmetic ($71.6\%$ additive vs a $71.1\%$ ceiling, while GEARS \emph{trained on those combos}
-gets $16.1\%$), unseen contexts are half irreducible (disattenuated cross-context cosine
-$0.42$), but on unseen genes the ceiling is $32$--$89\%$ while every cheap predictor (GO-kNN,
-the published linear baseline~\citep{ahlmanneltze2025linear}) is stuck at $0.8$--$1.9\%$ top-1
---- a failure of \emph{discrimination}, not fidelity (predictions crowd together;
-\Cref{fig:gap}). So a generator trained by distribution matching has no measurable headroom to
-beat, and the RL leverage is not in re-scoring a fixed oracle (a rank reward on the same
-predictions, information-preserving, recovers no discrimination, which also rules out
-contrastive learning). It is in the choice the atlas itself represents: \emph{which
-perturbations to measure}.
+A perturbation already in the atlas needs no model, since inverse design is then a lookup, so
+headroom exists only where a candidate is absent from the atlas. There are three ways this
+happens, and only the unseen-gene case is a gap (\Cref{fig:headroom}). Unseen pairs are
+additive: a two-term fit reaches 71.6\% against a 71.1\% ceiling, while GEARS, trained on those
+combinations, reaches 16.1\%. Unseen contexts are partly irreducible: the disattenuated
+cross-context cosine has median 0.42, so the same gene acts differently in another cell line.
+For unseen genes the ceiling is 32 to 89\%, while every cheap predictor, including
+GO-similarity kNN and the published linear baseline~\citep{ahlmanneltze2025linear}, reaches
+0.8 to 1.9\% top-1. These predictors fail at discrimination rather than fidelity: their
+predictions point in roughly the right direction but are close to one another (\Cref{fig:gap}).
+A generator trained by distribution matching therefore has little measurable headroom, and the
+reinforcement-learning leverage is not in re-scoring a fixed oracle, since a rank reward on the
+same predictions does not recover discrimination. It is in the choice the atlas represents:
+which perturbations to measure.
 
-\subsection{The acquisition MDP, and the yardsticks a result needs}
+\subsection{The acquisition problem and its baselines}
 \label{sec:mdp}
 
-Someone chose the $\sim$1{,}092 genes in the K562 screen~\citep{replogle2022perturbseq}; treat
-that choice as the policy. We define an offline MDP, simulated against \emph{real} measurements
-(each episode is a batch of matrix operations, no learned oracle in the loop): state $s_t=$
-genes measured so far, action $a_t\in\mathcal{A}\setminus s_t$, transition reveals $a_t$'s true
-signature, reward $=$ retrieval MRR on held-out genes. The budget is $B{=}100$ of
-$|\mathcal{A}|{=}437$ genes in $4$ rounds of $25$; after each round a GO-kNN predictor is refit
-from the chosen genes and scored on a disjoint \emph{report} set the policy never sees, with
-genes split three ways (\texttt{act} choosable, \texttt{rew} reward, \texttt{rep} report) so a
-policy is always rewarded on genes its features could not observe. Two regimes: \textbf{peek}
-(every non-report signature visible, including a candidate's before choosing --- exactly
-greedy's information, so the fair comparison to greedy) and \textbf{blind} (a signature is
-revealed only once measured; genuine prospective experimental design).
+We treat the selection of measured genes as the policy. We define an offline decision problem,
+simulated against real measurements, so that each episode is a set of matrix operations with no
+learned oracle in the loop. The state is the set of genes measured so far; an action measures
+one further gene; the transition reveals that gene's measured signature; the reward is retrieval
+mean reciprocal rank on held-out genes. The budget is 100 of 437 candidate genes, spent in four
+rounds of 25. After each round a GO-kNN predictor is refit from the chosen genes and scored on a
+disjoint report set that the policy never sees. Genes are split three ways, into a choosable
+set, a reward set and a report set, so that a policy is always scored on genes its features
+could not observe. We study two regimes. In the peek regime every non-report signature is
+visible, including a candidate's before it is chosen; this is the information greedy selection
+uses, so it is the setting in which greedy is the correct comparison. In the blind regime a
+signature is revealed only once its gene is measured, which corresponds to prospective
+experimental design.
 
-\textbf{Yardsticks.} A number on this task means nothing without them, so we fix four. The
-\emph{bar} is the random-$\times100$ distribution: a single random atlas spans $\pm15\%$, so we
-score every method against the median of $100$ draws (with p95/max). The \emph{honest floor} is
-GO facility location~\citep{nemhauser1978submodular}, a greedy set-cover on GO-Jaccard that
-reads no signatures ($1.23$/$1.30\times$ random on K562/RPE1) and already beats searching
-random subsets --- so random is not the baseline to beat, this is. \emph{Greedy} (peek; run
-over seeds, since one greedy run is itself one draw) is the obvious adaptive method. The
-\emph{ceiling} is a cheat that selects directly on the report genes ($2.0$--$2.2\times$). Two
-facts make this RL-shaped rather than a search nuisance: the reward is high-variance --- greedy
-drives its own objective to $0.72$ on $25$ reward genes yet delivers $0.168$ held out,
-\emph{worse than random}, and the harm falls monotonically as the estimate improves
-(\Cref{fig:noise}) --- and the prize is large (greedy's $\sim\!1.2\times$ against the cheat's
-$2\times$). The lever is reward variance, which is what learned baselines and policy
-generalisation exist for.
+We compare against four reference quantities. A single random atlas varies by about 15\% around
+its median, so we report each method against the median of 100 random draws, with the 95th
+percentile and the maximum. Greedy facility location on GO-Jaccard~\citep{nemhauser1978submodular}
+uses no signatures and reaches $1.23\times$ and $1.30\times$ random on K562 and RPE1; it exceeds
+a search over random subsets, so it, rather than random, is the quantity to improve on. Greedy
+selection in the peek regime, run over several seeds because a single greedy run is one draw, is
+the direct adaptive comparison. An upper bound selects directly on the report genes and reaches
+$2.0$--$2.2\times$ random. Two measurements indicate that this is a reinforcement-learning
+problem rather than a search nuisance. The reward is high-variance: greedy raises its own
+objective to 0.72 on 25 reward genes but delivers 0.168 on held-out genes, below random, and the
+shortfall closes as the estimate improves (\Cref{fig:noise}). And the available improvement is
+large: greedy reaches about $1.2\times$ random against the bound's $2\times$. The variance of
+the reward is the quantity that learned baselines and policy generalisation address.
 
-\subsection{Three RL policies}
+\subsection{Three reinforcement-learning methods}
 \label{sec:methods}
 
-All three optimise $J(\pi)=\mathbb{E}_{S\sim\pi}[R(S)]$ over size-$B$ gene sets $S$
-(\Cref{alg:episode}), differing in what is learned so that each probes a different reason
-greedy falls short.
+All three methods optimise $J(\pi)=\mathbb{E}_{S\sim\pi}[R(S)]$ over gene sets $S$ of size 100
+(\Cref{alg:episode}), and differ in what is learned, so that each tests a different explanation
+for greedy's shortfall.
 
-\textbf{(1) REINFORCE~\citep{williams1992reinforce} over a Plackett--Luce policy (search).}
-One logit $\theta_g$ per candidate; a set is sampled without replacement
+\begin{enumerate}[leftmargin=1.5em,itemsep=3pt,topsep=2pt]
+\item REINFORCE~\citep{williams1992reinforce} over a Plackett--Luce policy, which tests search.
+Each candidate has a logit $\theta_g$, and a set is sampled without replacement
 (Plackett--Luce~\citep{plackett1975luce}), giving $\nabla_\theta J=\mathbb{E}[(R(S)-b)\,
-\nabla_\theta\log\pi_\theta(S)]$ with a leave-one-out baseline $b$. This changes only the
-optimiser. REINFORCE reaches a \emph{higher value of greedy's own reward} (aux MRR $0.233$ vs
-$0.193$): with $470$--$850$ reward genes greedy is not mainly overfitting, it is a poor
-optimiser of a non-submodular set objective (adding a gene can evict a better neighbour from a
-target's top-10).
-
-\textbf{(2) Learned critic as a control variate (reward estimate).} We fit a one-step value
-$\hat V_\phi(g)$ --- the \emph{held-out} gain of measuring $g$ --- from features alone
-($\gamma{=}0$), never seeing those genes, and use it to shrink greedy's empirical gain,
-$\tilde g(g)=\lambda\hat V_\phi(g)+(1-\lambda)\hat g_{\text{emp}}(g)$. The diagnostic is the
-point: greedy's one-step gain on visible genes correlates only $r{=}0.17\,(0.14$--$0.23)$ with
-the same gene's held-out gain, the critic reaches $r{=}0.26$, and the two combined $0.28$ --- a
-gene's value is predicted better from \emph{what kind of gene it is} than from measuring it on
-a few hundred visible genes. Critic-shrunk greedy beats greedy $18/18$.
-
-\textbf{(3) PPO feature policy with GRPO-style advantages (generalisation).} A $2{\times}32$
-MLP scores each candidate from $13$ (peek) / $10$ (blind) gene features plus $4$ context
-features. We train with PPO~\citep{schulman2017ppo} using group-relative
-(GRPO~\citep{shao2024grpo}) advantages $\hat A(S)=(R(S)-\mathrm{mean}_j R(S_j))/\mathrm{std}_j
-R(S_j)$ over a group of rollouts on the same sub-problem --- a natural fit for an episodic
-set-reward with no per-step signal. Crucially PPO trains on \emph{thousands of re-split
-sub-problems} (checkpoint chosen on held-out validation ones), so it cannot memorise a reward
-set; it never optimises the deployment reward yet matches REINFORCE, i.e.\ it learns a
-transferable \emph{rule} (prefer genes whose GO neighbours share their signature; avoid genes
-that duplicate a chosen gene's signature or GO profile).
+\nabla_\theta\log\pi_\theta(S)]$ with a leave-one-out baseline $b$. This changes the optimiser
+only. REINFORCE reaches a higher value of greedy's own reward, 0.233 against 0.193, so with 470
+to 850 reward genes greedy is not mainly overfitting; it is a weak optimiser of a set objective
+that is not submodular, since adding a gene can displace a better neighbour from a target's top
+ten.
+\item A learned critic used as a control variate, which tests the reward estimate. We fit a
+one-step value $\hat V_\phi(g)$, the held-out gain of measuring $g$, from features alone and
+without access to the held-out genes, and use it to shrink greedy's empirical gain toward it.
+Greedy's one-step gain on visible genes correlates only $r{=}0.17$ (0.14 to 0.23) with the same
+gene's held-out gain, the critic reaches $r{=}0.26$, and the two together reach 0.28. A gene's
+value is predicted better from its features than from measuring it on a few hundred visible
+genes. The critic-shrunk greedy method improves on greedy in 18 of 18 paired runs.
+\item A PPO feature policy with GRPO-style advantages, which tests generalisation. A small
+multilayer perceptron scores each candidate from 13 gene features in the peek regime, or 10 in
+the blind regime, together with 4 context features. We train with PPO~\citep{schulman2017ppo}
+using group-relative advantages~\citep{shao2024grpo},
+$\hat A(S)=(R(S)-\mathrm{mean}_j R(S_j))/\mathrm{std}_j R(S_j)$ over a group of rollouts on the
+same sub-problem, which suits a reward defined only at the end of an episode. The policy trains
+on many re-split sub-problems, with the checkpoint chosen on held-out validation sub-problems,
+so it cannot memorise one reward set. It does not optimise the deployment reward yet matches
+REINFORCE, so it learns a transferable rule: prefer genes whose GO neighbours share their
+signature, and avoid genes that duplicate the signature or GO profile of an already-chosen gene.
+\end{enumerate}
 
 \begin{algorithm}[h]
 \small
 \caption{Acquisition episode (one rollout), shared by all three methods}
 \label{alg:episode}
 \begin{algorithmic}[1]
-\State $s \gets \emptyset$;\quad split genes into \texttt{act}, \texttt{rew}, \texttt{rep}
+\State $s \gets \emptyset$;\quad split genes into choosable, reward and report sets
 \For{round $=1,\dots,4$}
-  \State score candidates $g\in\texttt{act}\setminus s$
+  \State score candidates $g$ not yet chosen
   (logit $\theta_g$ / critic $\hat V_\phi(g)$ / MLP $f_\psi(\text{features}(g,s))$)
-  \State sample $25$ genes without replacement $\to$ add to $s$; refit GO-kNN predictor from $s$
+  \State sample 25 genes without replacement, add to $s$, and refit the GO-kNN predictor from $s$
 \EndFor
-\State $R \gets$ predictor's MRR on \texttt{rew} (reward);\; report MRR on \texttt{rep} (diagnostic)
-\State update: REINFORCE (PL + LOO baseline) / critic regression / PPO-clip with GRPO advantage
+\State $R \gets$ the predictor's mean reciprocal rank on the reward set; report-set score kept as a diagnostic
+\State update the policy: REINFORCE with a leave-one-out baseline, critic regression, or PPO with a group-relative advantage
 \end{algorithmic}
 \end{algorithm}
 
-\subsection{Given the signatures, RL beats greedy --- and the field's methods for this task}
+\subsection{Results with observed signatures}
 \label{sec:peek}
 
-\Cref{fig:acq} is the headline. The cheap yardsticks cluster at $1.18$--$1.30\times$ (facility
-location $1.23$/$1.30\times$; greedy reading all auxiliary signatures $1.24$/$1.26\times$),
-while every peek RL method sits at $1.32$--$1.59\times$ and clears each split's random p95:
-REINFORCE $1.35$/$1.59\times$, critic-shrunk greedy $1.38$/$1.56\times$, PPO peek
-$1.35$/$1.54\times$. They win $85$ of $90$ paired comparisons with greedy (all $45$ on RPE1)
-and roughly \emph{double} the share of the cheat's margin captured
-($22$--$23\%\!\to\!34$--$48\%$). All three explanations hold --- search (REINFORCE optimises
-the set jointly), reward estimate (the critic's $r{:}0.17\!\to\!0.26$), generalisation (PPO's
-curves transfer to deployment scale; \Cref{fig:curves}). Against the field's methods for this
-exact task, RL stays on top (\Cref{fig:related}): data valuation --- Data
-Shapley~\citep{ghorbani2019datashapley}, Banzhaf~\citep{wang2023databanzhaf},
-datamodels~\citep{ilyas2022datamodels}, given REINFORCE's evaluation budget --- beats greedy
-($1.22$--$1.31$/$1.43$--$1.51\times$) but \emph{trails} the RL methods; a linear fit explains
-$60\%$ of the reward's variance, and the unexplained interaction is exactly what optimising the
-set jointly buys. One rescue makes the mechanism concrete
-(\Cref{fig:flow,fig:anatomy}): \emph{ATP6V0C} is never measured, and REINFORCE learns to
-measure the V-ATPase subunit \emph{ATP6V1B2} (GO overlap $0.44$, signature cosine $0.66$),
-lifting \emph{ATP6V0C}'s predicted rank $\#20\!\to\!\#1$ in all three seeds where facility
-location does not --- the deployment reward optimised directly, not a generic diversity rule.
+\Cref{fig:acq} shows the peek regime. The cheap baselines lie between $1.18$ and $1.30\times$
+random: facility location at $1.23$ and $1.30$, and greedy reading all auxiliary signatures at
+$1.24$ and $1.26$. Every reinforcement-learning method lies between $1.32$ and $1.59\times$ and
+exceeds each split's 95th percentile: REINFORCE at $1.35$ and $1.59$, critic-shrunk greedy at
+$1.38$ and $1.56$, and PPO at $1.35$ and $1.54$. They improve on greedy in 85 of 90 paired
+comparisons, all 45 on RPE1, and roughly double the fraction of the bound's margin recovered,
+from 22 to 23\% up to 34 to 48\%. The three explanations all hold: REINFORCE optimises the set
+jointly (search), the critic raises the correlation from 0.17 to 0.26 (reward estimate), and PPO
+transfers to deployment scale (generalisation, \Cref{fig:curves}). Compared with published
+methods for the same task (\Cref{fig:related}), the reinforcement-learning methods remain best:
+data valuation, using Data Shapley~\citep{ghorbani2019datashapley},
+Banzhaf~\citep{wang2023databanzhaf} and datamodels~\citep{ilyas2022datamodels} with REINFORCE's
+evaluation budget, improves on greedy, at $1.22$ to $1.31$ and $1.43$ to $1.51\times$, but does
+not reach the reinforcement-learning methods. A linear fit explains 60\% of the reward's
+variance, and the remaining interaction term is what optimising the set jointly recovers. One
+case shows the mechanism (\Cref{fig:flow,fig:anatomy}): ATP6V0C is never measured, and REINFORCE
+learns to measure the V-ATPase subunit ATP6V1B2, which has GO overlap 0.44 and signature cosine
+0.66 with it, raising ATP6V0C's predicted rank from 20 to 1 in all three seeds, where facility
+location does not. The policy optimises the deployment reward directly rather than applying a
+general diversity rule.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{figures/fig15_rl_acquisition.pdf}
-\caption{\textbf{Acquisition, budget $100$ of $437$, two Replogle screens.} Report MRR $\div$
-the split's random-$\times100$ median; small marks are split$\times$seed ($3{\times}3$),
-large marks the mean; grey band $=$ random p05--p95, dashed line $=$ best cheating run.
-\emph{Peek} RL (red) beats every baseline (grey diamonds) and clears random p95; \emph{blind}
-RL (blue), where a signature is read only once measured, lands on the static GO
-facility-location floor. The published methods for this task are compared in \Cref{fig:related}.}
+\caption{Acquisition, budget 100 of 437, on the two Replogle screens. Report mean reciprocal
+rank divided by the split's median over 100 random draws; small marks are the nine
+split-by-seed runs and large marks their mean. The grey band is the random 5th-to-95th
+percentile and the dashed line is the best run of the upper bound. In the peek regime (red)
+every reinforcement-learning method exceeds the baselines (grey diamonds) and the random 95th
+percentile; in the blind regime (blue), where a signature is read only once measured, the method
+matches the GO facility-location baseline. Published methods for the task are compared in
+\Cref{fig:related}.}
 \label{fig:acq}
 \end{figure}
 
-\subsection{Without them, a classical heuristic is already optimal: a negative result}
+\subsection{Results with hidden signatures}
 \label{sec:blind}
 
-Hide a candidate's signature until it is measured and the picture inverts: the PPO policy only
-\emph{matches} the GO facility-location floor. We treated this as an engineering gap and named
-three suspects (training sub-problems smaller than deployment, a GO-only gene view, too small a
-training atlas), ran one variant each plus the combination ($4\times2\times3\times3=72$ runs),
-and \textbf{all four land on the floor} ($|t|\le1.4$ paired; the largest blind number anywhere
-is $t{=}{+}0.54$). The scale hypothesis is \emph{refuted}, not merely unconfirmed:
-size-matching sub-problems to deployment \emph{lowered} the policy's validation advantage over
-facility location ($1.085\!\to\!1.028\times$), so the earlier $5$--$13\%$ gain was noise in a
-small validation set; richer priors do not help statically either (IDF-GO $1.24$/$1.24\times$,
-GO-embedding $1.19$/$1.05\times$, vs Jaccard $1.23$/$1.30\times$). The field's prospective
-methods confirm it from the other side (\Cref{fig:related}):
-IterPert~\citep{huang2024iterpert} --- sequential Perturb-seq design, originally benchmarked on
-this same screen --- and its eight active-learning baselines
-(Core-Set~\citep{sener2018coreset}, BALD, BatchBALD, BADGE, LCMD, ACS-FW, $k$-means,
-TypiClust) \emph{all land below} the floor ($0.99$--$1.18\times$, $t$ from $-2.1$ to $-9.3$;
-IterPert itself $1.02\times$, indistinguishable from random on K562), and our PPO-blind beats
-every one. A $2{\times}2$ says why and closes the representation question: the \emph{rule}
-matters ($k$-centre $\to$ facility location gains $+0.09$ to $+0.28\times$) but the \emph{prior}
-does not (IterPert's eight multimodal kernels --- protein-language-model, text, network,
-imaging, the other line --- tie GO-Jaccard), exactly the sequence/expression/pathway priors we
-had flagged as untested. The honest result is a \emph{separation}: seeing the candidates'
-signatures is worth $1.35$--$1.59\times$; prior knowledge alone is worth $1.23$--$1.30\times$,
-and a 1970s heuristic already extracts all of it. A negative result with a refuted mechanism
-tells the next person the lever is the gene representation, not the policy.
+When a candidate's signature is hidden until its gene is measured, the PPO policy only matches
+the GO facility-location baseline. We treated this as an implementation gap and identified three
+possible causes: training sub-problems smaller than deployment, a GO-only gene representation,
+and too small a training atlas. We ran one variant for each, and the combination, for 72 runs in
+total, and all four match the baseline ($|t|\le1.4$ paired; the largest blind value is
+$t=+0.54$). The scale hypothesis is not supported: matching the sub-problem size to deployment
+lowered the policy's validation advantage over facility location, from $1.085$ to $1.028\times$,
+so the earlier advantage of 5 to 13\% was noise in a small validation set. Richer priors do not
+help the static baseline either: IDF-weighted GO reaches $1.24$ and $1.24\times$ and a GO
+embedding $1.19$ and $1.05$, against Jaccard at $1.23$ and $1.30$. The published prospective
+methods give the same conclusion (\Cref{fig:related}). IterPert~\citep{huang2024iterpert}, which
+was evaluated on this screen, and its eight active-learning baselines, namely
+Core-Set~\citep{sener2018coreset}, BALD, BatchBALD, BADGE, LCMD, ACS-FW, k-means and TypiClust,
+all fall below the baseline, at 0.99 to $1.18\times$, with $t$ from $-2.1$ to $-9.3$; IterPert
+itself reaches $1.02\times$ and is not distinguishable from random on K562. Our blind PPO policy
+improves on all of them. A two-by-two comparison locates the cause: the selection rule matters,
+since replacing k-centre with facility location gains $0.09$ to $0.28\times$, while the prior
+does not, since IterPert's eight multimodal kernels, which include protein-language-model, text,
+network and imaging features, match GO-Jaccard. These are the sequence, expression and pathway
+priors we had listed as untested. The result is a separation: observing candidate signatures is
+worth $1.35$--$1.59\times$, prior knowledge alone is worth $1.23$--$1.30\times$, and a classical
+heuristic recovers it. Because the negative result has an identified cause, it indicates that
+the limiting factor is the gene representation rather than the policy.
 
-\begin{AIbox}{Takeaways}
-\footnotesize
-\textbf{(1) Measure the reward before post-training the generator.} Ceiling $86.6\%$ vs GEARS
-$8.3\%$: the oracle, not the generator, caps this task. \textbf{(2) The RL-shaped problem is
-acquisition.} Choosing $100$ of $437$ genes is a combinatorial MDP with a discrete action space
-and a high-variance reward ($r{=}0.17$ to the quantity that matters). \textbf{(3) With greedy's
-information, RL wins.} REINFORCE / critic-control-variate / PPO-GRPO reach $1.35$--$1.59\times$
-random and beat greedy ($85/90$) and every published method for the task; each isolates one
-cause (search / reward estimate / generalisation). \textbf{(4) The negative result is sharp.}
-In the blind regime five learned policies, and every published active-learning method, tie or
-trail a 1970s facility-location heuristic; the scale hypothesis is \emph{refuted}; the binding
-constraint is the gene representation.
-\end{AIbox}
+\subsection{Limitations}
+
+These results have limits. Each setting uses three splits and three seeds, one predictor
+(GO-kNN) and one budget, so the negative result rules out effects of the size the peek methods
+show, about 0.02 to 0.03 in mean reciprocal rank, but not smaller ones. The peek methods read
+candidate signatures and are not themselves prospective. Every number so far is on the
+acquisition problem; the generator comparison the proposal described has not been run. The
+oracle numbers in \Cref{sec:oracle} use a checkpoint trained on all of Norman, so the held-out
+oracle margin is still to be measured.
 
 \section{Datasets, Environments, and Resources [2 points]}
 
-\textbf{Data.} GEARS-processed Perturb-seq: Replogle K562 \& RPE1
-essential~\citep{replogle2022perturbseq} ($\sim$163k cells; $1{,}092$/$1{,}543$ perturbed
-conditions --- the two action spaces large enough to be real), plus
-Norman~\citep{norman2019gi}, Adamson~\citep{adamson2016upr},
-Dixit~\citep{dixit2016perturbseq} and the GO graph for the feasibility probes. All derived
-state is cached to disk (JSONL/\texttt{npz}) so every figure is redrawable without
-recomputation. \textbf{The acquisition MDP is an offline simulator}: episodes are matrix
-operations over cached real signatures ($57$--$69$\,MB \texttt{npz}/dataset), with \emph{no}
-GEARS forward pass in the loop. \textbf{Environments \& compute.} Two pinned envs (scanpy /
-numpy 2.4 for analysis; torch 2.4.1+cu121 / PyG / numpy${<}2$ for GEARS, whose pickles need a
-numpy path removed in 2.x). Everything runs through SLURM as CPU jobs; the RL needs \emph{no
-GPU} (offline matrix ops), so the headline study is $\sim$$10$--$30$ CPU-core-hours --- itself
-a practical finding.
+We use GEARS-processed Perturb-seq data: Replogle K562 and RPE1
+essential~\citep{replogle2022perturbseq}, with about 163{,}000 cells and 1{,}092 and 1{,}543
+perturbed conditions, the two action spaces large enough to be realistic, together with
+Norman~\citep{norman2019gi}, Adamson~\citep{adamson2016upr}, Dixit~\citep{dixit2016perturbseq}
+and the GO graph for the feasibility analyses. All derived state is written to disk, as JSONL
+rows and npz arrays, so that figures can be redrawn without recomputation. The acquisition
+problem is an offline simulator: episodes are matrix operations over cached measured signatures,
+57 to 69 MB per dataset, with no GEARS forward pass in the loop. We use two fixed environments,
+one for analysis (scanpy and numpy 2.4) and one for GEARS (torch 2.4.1 with CUDA 12.1, PyG, and
+numpy below version 2, which GEARS requires because its data files use a numpy path removed in
+version 2). All work runs through SLURM as CPU jobs; the reinforcement-learning runs need no
+GPU, since they are offline matrix operations, so the main study is about 10 to 30
+CPU-core-hours.
 
 \section{Updated Plan and Next Steps [5 points]}
 
-Milestone~1 (baselines, data, oracle weights, environments) is complete and we are ahead on
-analysis, with the core RL results and an honest comparison to the field already in hand; the
-re-scoping above \emph{is} the proposal's ``extend the framework'' step, done early and with
-measurements behind it. Remaining work, against the course deadlines (poster \textbf{Dec~2\,\&\,4},
-video \textbf{Dec~7}, final report \textbf{Dec~8}):
-\begin{enumerate}[leftmargin=1.4em,itemsep=1pt,topsep=2pt]
-  \item \textbf{(now--Nov~25) The one open problem the negative result isolates:} a prospective
-  policy needs a gene representation that predicts \emph{effect}, not GO category. GO, IDF-GO,
-  GO-embedding and IterPert's eight multimodal priors all tie, so we test sequence (ESM),
-  expression co-variation and pathway-topology features \emph{inside the predictor} and re-run
-  the blind table --- a blind policy can only beat facility location if its features see effect.
-  \item \textbf{(now--Nov~25) Strengthen the RL story:} ablate the critic control-variate
-  weight $\lambda$ and the GRPO group size, add seeds to tighten the $n{=}9$ estimates, report
-  learning-curve variance. The critic-as-control-variate result ($r{:}0.17\!\to\!0.26$,
-  $18/18$) is the cleanest RL contribution and deserves a focused ablation.
-  \item \textbf{(Nov~25--Dec~1) Close the loop to the oracle} (retrain GEARS held-out,
-  \texttt{split=simulation}; swap in STATE~\citep{arcstate2026} if the held-out margin is thin)
-  and \textbf{assemble the poster} for Dec~2\,\&\,4.
-  \item \textbf{(Dec~5--7) Finalise experiments and record the video} (due Dec~7); \textbf{(Dec~8)}
-  submit the final report.
-\end{enumerate}
-\textbf{Risks.} \emph{(i) The open problem may stay negative} --- richer representations might
-also tie facility location; mitigation: a well-measured separation is already a result, and the
-upside is a representation that breaks it. \emph{(ii) Small $n$;} mitigation: every number is
-expressed against its split's random distribution with p95/max, and greedy/cheat run over seeds
-(a single draw spans $\pm15\%$). \emph{(iii) Scope creep back to generation;} mitigation: the
-acquisition MDP is the committed deliverable, and an RL-vs-LabCompass~\citep{labcompass2026}
-comparison on a non-differentiable reward is a stretch goal, not a dependency.
+The remaining work tests whether the method extends to prospective design, measures the oracle
+rung on held-out data, and prepares the result for the poster and report. The schedule is in
+\Cref{tab:timeline}.
+
+\begin{table}[htb]
+\centering
+\begin{tabularx}{\linewidth}{lX}
+\toprule
+Dates & Work \\
+\midrule
+Nov 18--25 & Add gene features that predict effect (sequence, expression co-variation, pathway
+topology) inside the predictor and re-run the blind comparison; a blind policy can exceed
+facility location only if its features reflect effect. Ablate the critic control-variate weight
+and the GRPO group size, and add seeds to tighten the estimates. \\
+Nov 25--Dec 1 & Measure the oracle rung on held-out data, by retraining GEARS with a held-out
+split or substituting STATE~\citep{arcstate2026}, and prepare the poster. \\
+Dec 2, Dec 4 & Poster sessions. \\
+Dec 5--7 & Final experiments and the project video (due Dec 7). \\
+Dec 8 & Final report. \\
+\bottomrule
+\end{tabularx}
+\caption{Plan for the remaining work.}
+\label{tab:timeline}
+\end{table}
+
+Three risks remain. The open problem may stay negative, if richer representations also match
+facility location; a measured separation is already a result, and the favourable case is a
+representation that exceeds it. The sample size is small, which we address by reporting every
+number against its split's random distribution, with the 95th percentile and maximum, and by
+running greedy and the bound over seeds. Finally, returning to generation would enlarge the
+scope; the acquisition problem is the committed deliverable, and the comparison with
+LabCompass~\citep{labcompass2026} on a non-differentiable reward is a secondary goal.
 
 \section{Team Contributions}
 
-Both members are CMU students; the workload re-balanced around the re-scoping. \textbf{Yixi
-Zhao} --- forward/inverse oracle probing and the ceiling/oracle ladder (\Cref{sec:oracle}), the
-generalization-axis study (\Cref{fig:headroom}), the acquisition MDP simulator, REINFORCE
-(Plackett--Luce) and the learned critic / control-variate, and the static baselines (facility
-location, multi-seed greedy, cheating bound). \textbf{Zhangchi (Allen) Chen} --- the PPO/GRPO
-feature policy, the blind-regime variants (size-matched / cross-line / richer-prior) and the
-learning-curve and gradient-attribution diagnostics, the comparison to published methods
-(IterPert + bmdal AL methods + data valuation through their own code), and the case-study
-figures. GEARS environment, evaluation fixes, writing, and the SLURM job/figure pipeline were
-shared.
+Both members are CMU students, and the division of work changed with the re-scoping. Yixi Zhao
+implemented the oracle probing and the ceiling and oracle ladder (\Cref{sec:oracle}), the
+generalization-axis study (\Cref{fig:headroom}), the acquisition simulator, REINFORCE and the
+learned critic and control variate, and the static baselines. Zhangchi (Allen) Chen implemented
+the PPO policy, the blind-regime variants and the learning-curve and attribution diagnostics,
+the comparison with published methods, and the case-study figures. The GEARS environment, the
+evaluation corrections, the writing, and the SLURM pipeline were shared.
 
 \section{Reflection and Feedback}
 
-\textbf{Learned.} The most useful RL lesson was a discipline, not an algorithm: \emph{measure
-the reward and the baseline before optimising.} We would otherwise have post-trained a
-generator against a reward (GEARS) that cannot discriminate, and would have ``beaten random''
-at acquisition without noticing that a 1970s heuristic and the random distribution's own
-$\pm15\%$ spread were the real bars. We saw concretely why variance reduction matters
-\emph{here} (a reward correlating $r{=}0.17$ with its target actively harms greedy), how a
-one-step critic doubles as a reward-quality diagnostic, and that a GRPO group baseline fits an
-episodic set-reward with no per-step signal. \textbf{Feedback wanted.} (1) Is a well-measured
-\emph{separation} plus a mechanism-backed negative result an acceptable core contribution, or
-should we weight the stretch generator-vs-guidance comparison more? (2) Pointers on gene
-representations that encode \emph{effect} rather than annotation --- the one input that could
-flip the blind regime. (3) A sanity check on our offline-MDP protocol (three-way
-\texttt{act}/\texttt{rew}/\texttt{rep} splits, scored against the random-$\times100$
-distribution): is there a standard we should match?
+The most useful lesson was procedural rather than algorithmic: measure the reward and the
+baseline before optimising. Without this we would have post-trained a generator against a reward
+that does not discriminate between candidates, and would have reported improvements over random
+at acquisition without noting that a classical heuristic, and the 15\% spread of the random
+distribution, were the relevant comparisons. We also saw why variance reduction matters here,
+since a reward correlating at 0.17 with its target reduces greedy's performance; that a one-step
+critic serves as a measure of reward quality; and that a group-relative baseline suits an
+episodic set reward with no per-step signal.
+
+We would value feedback on three points. First, whether a measured separation together with a
+negative result that has an identified cause is an acceptable core contribution, or whether we
+should give more weight to the generator-versus-guidance comparison. Second, pointers to gene
+representations that encode effect rather than annotation, which is the input most likely to
+change the blind result. Third, a check on the evaluation protocol, with its three-way split and
+its scoring against the random distribution. Compute has not been a constraint, since the
+reinforcement learning is CPU-only, so our questions are methodological.
 
 \bibliography{main,refs}
 
@@ -527,13 +527,13 @@ distribution): is there a standard we should match?
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.92\linewidth]{figures/fig13_headroom_by_axis.pdf}
-\caption{\textbf{Of three ways a candidate can be ``unseen,'' only one has headroom.}
-\textbf{a}, chance (1/$K$, open), best cheap predictor (blue; red diamond $=$ additive fit on
-Norman combos) and measured ceiling (black); label $=$ ceiling$-$chance gap. \textbf{b}, the
-fraction of that gap the cheap predictor recovers (MRR). Target $=\le$32 held-out cells, each
-candidate's own target gene masked. Unseen pairs are arithmetic (100\% recovered); unseen
-context is partly irreducible; the four \emph{unseen-gene} rows are the only place a method
-has somewhere to go --- the motivation for \Cref{sec:mdp}.}
+\caption{Of the three ways a candidate can be absent from the atlas, only one leaves headroom.
+a, for each axis and dataset: chance (open), the best cheap predictor (blue; the red diamond is
+the additive fit on Norman combinations) and the measured ceiling (black); the label is the
+ceiling-minus-chance gap. b, the fraction of that gap the cheap predictor recovers, by mean
+reciprocal rank. The target is at most 32 held-out cells, with each candidate's own target gene
+masked. Unseen pairs are additive and fully recovered; unseen context is partly irreducible; the
+four unseen-gene rows are where a method has room to improve, which motivates \Cref{sec:mdp}.}
 \label{fig:headroom}
 \end{figure}
 
@@ -543,12 +543,12 @@ has somewhere to go --- the motivation for \Cref{sec:mdp}.}
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.9\linewidth]{figures/fig16_rl_curves.pdf}
-\caption{\textbf{PPO learning curves} (K562 left, RPE1 right). \textbf{a,b}, validation MRR
-$\div$ facility location on training-like sub-problems --- every variant learns a small
-($1.03$--$1.11\times$) advantage. \textbf{c,d}, report MRR $\div$ random median at deployment
-scale (diagnostic only, never used for selection): the peek policy (red) transfers, the blind
-variants (blue) do not clear the floor. The gap between b and d is the negative result of
-\Cref{sec:blind} --- the blind policy's small validation advantage does not survive transfer.}
+\caption{PPO learning curves, K562 on the left and RPE1 on the right. a and b, validation mean
+reciprocal rank divided by facility location on sub-problems drawn like the training ones; every
+variant learns a small advantage, 1.03 to 1.11 times. c and d, report mean reciprocal rank
+divided by the random median at deployment scale, used only as a diagnostic: the peek policy
+(red) transfers, while the blind variants (blue) do not exceed the baseline. The difference
+between b and d is the negative result of \Cref{sec:blind}.}
 \label{fig:curves}
 \end{figure}
 
@@ -558,61 +558,61 @@ variants (blue) do not clear the floor. The gap between b and d is the negative 
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.96\linewidth]{figures/fig17_related_work.pdf}
-\caption{\textbf{Published acquisition methods, identical task} (same splits, budget, predictor
-and report genes; $270$ runs). Our RL (circles) and baselines (diamonds) beside published
-methods (squares); red $=$ peek regime, blue $=$ blind; dashed line $=$ our best static floor.
-Blind: every published method is below the floor and below our PPO-blind. Peek: data valuation
-beats greedy but trails our RL.}
+\caption{Published acquisition methods on the same task, using the same splits, budget,
+predictor and report genes, over 270 runs. Our reinforcement-learning methods (circles) and
+baselines (diamonds) are shown beside published methods (squares); red is the peek regime and
+blue the blind regime, and the dashed line is our best static baseline. In the blind regime
+every published method is below the baseline and below our blind PPO policy. In the peek regime
+data valuation improves on greedy but does not reach our methods.}
 \label{fig:related}
 \end{figure}
 
-\section{Case studies: where the RL gain comes from, gene by gene}
+\section{Case studies: where the improvement comes from, gene by gene}
 \label{app:extra}
 
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.86\linewidth]{figures/fig19_rescue_flow.pdf}
-\caption{\textbf{Where REINFORCE's gain lands, gene by gene.} Each line joins a held-out report
-gene's rank under a typical random atlas (left) to its rank under REINFORCE's atlas (right).
-Red: improved $\ge2\times$; blue: worsened $\ge2\times$; black: \emph{ATP6V0C}
-(\Cref{fig:anatomy}). Rank-1 genes go $4\!\to\!16$ (K562) and $0\!\to\!23$ (RPE1), with far
-more genes improving than worsening. \textbf{a}, K562 ($n{=}182$). \textbf{b}, RPE1 ($n{=}257$).}
+\caption{Change in each held-out gene's rank between a typical random atlas (left) and
+REINFORCE's atlas (right). Red lines improve by at least a factor of two, blue lines worsen by at
+least a factor of two, and the black line is ATP6V0C (\Cref{fig:anatomy}). Genes ranked first
+increase from 4 to 16 on K562 and from 0 to 23 on RPE1, with more genes improving than
+worsening. a, K562 (182 genes). b, RPE1 (257 genes).}
 \label{fig:flow}
 \end{figure}
 
 \begin{figure}[h]
 \centering
 \includegraphics[width=\linewidth]{figures/fig20_rescue_anatomy.pdf}
-\caption{\textbf{One rescue dissected: \emph{ATP6V0C} (K562).} \textbf{a,b}, its $10$ GO-kNN
-neighbours in a random atlas vs REINFORCE's; radial distance $=1-$ GO Jaccard, marker
-size/spoke width $\propto$ kNN weight, colour $=$ signature cosine with \emph{ATP6V0C}.
-Measuring the V-ATPase subunit \emph{ATP6V1B2} (lower-left in b) moves the rank $\#20\!\to\!\#1$.
-\textbf{c}, its $36$ most-changed readout genes: measured, and predicted from each atlas.}
+\caption{One rescue in detail: ATP6V0C on K562. a and b, its ten GO-kNN neighbours in a random
+atlas and in REINFORCE's atlas; radial distance is one minus GO Jaccard, marker size and spoke
+width are proportional to the kNN weight, and colour is the signature cosine with ATP6V0C.
+Measuring the V-ATPase subunit ATP6V1B2 (lower left in b) moves the rank from 20 to 1. c, the
+36 most-changed readout genes: measured, and predicted from each atlas.}
 \label{fig:anatomy}
 \end{figure}
 
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.95\linewidth]{figures/fig18_gap_crowd.pdf}
-\caption{\textbf{The unseen-gene gap, one gene at a time (K562).} A held-out target scored
-against all candidates by their measured signatures (top of each panel) and their GO-kNN
-predictions (bottom); red dot $=$ the true gene with its rank. \textbf{a--c}, the genes at the
-$25$th/$50$th/$75$th percentile of predicted rank among the $371$ the measurement ranks first.
-Predictions are not wrong in direction (cosine $0.26$--$0.51$); they \emph{crowd}, so the
-target cannot pick its own out --- discrimination, not fidelity (\Cref{sec:oracle}).}
+\caption{The unseen-gene gap, one gene at a time, on K562. A held-out target is scored against
+all candidates by their measured signatures (top of each panel) and by their GO-kNN predictions
+(bottom); the red dot is the true gene, with its rank. a to c, the genes at the 25th, 50th and
+75th percentile of predicted rank among the 371 that the measurement ranks first. The
+predictions point in the right direction (cosine 0.26 to 0.51) but are close to one another, so
+the target cannot be told from the rest; this is the discrimination failure of \Cref{sec:oracle}.}
 \label{fig:gap}
 \end{figure}
 
 \begin{figure}[h]
 \centering
 \includegraphics[width=\linewidth]{figures/fig21_greedy_noise.pdf}
-\caption{\textbf{Greedy's scored gain barely predicts held-out gain (K562)} --- the reward
-noise of \Cref{sec:mdp,sec:methods} visualised. \textbf{a}, at the median decision, each
-candidate's gain on the scored genes vs held-out genes ($r{=}0.16$); greedy's pick
-\emph{SFSWAP} ranks $\#203/363$ held-out. \textbf{b}, that correlation at each of greedy's $99$
-decisions. \textbf{c}, where greedy's picks landed by held-out gain, in deciles --- only $12$
-of $99$ reach the top decile, against $\sim\!10$ for random. Greedy's atlas still helps overall
-(almost any gene helps); what it cannot do is tell the better candidates from the rest.}
+\caption{Greedy's scored gain barely predicts its held-out gain, on K562. a, at the median
+decision, each candidate's gain on the scored genes against its gain on the held-out genes
+($r=0.16$); greedy's choice, SFSWAP, ranks 203 of 363 by held-out gain. b, that correlation at
+each of greedy's 99 decisions. c, the held-out-gain decile of greedy's choices; only 12 of 99
+fall in the top decile, against about 10 for random choices. Greedy's atlas still helps overall,
+because almost any added gene helps, but it cannot tell the better candidates from the rest.}
 \label{fig:noise}
 \end{figure}
 
