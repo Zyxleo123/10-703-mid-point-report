@@ -253,7 +253,10 @@ Norman~\citep{norman2019gi} with a 128-cell target, the ceiling identifies the r
 leave GEARS near 10\%, so the limit is GEARS's prediction error, not noise in the target. GEARS
 also does no better than predicting the average effect of all perturbations: the median cosine
 to the measured effect is 0.691 for GEARS and 0.696 for the average, and GEARS is closer on only
-44.8\% of conditions.
+44.8\% of conditions. Two silent data errors had to be fixed first. Norman lists 47 of its 283
+conditions twice (as X+ctrl and ctrl+X); merging them raised the ceiling from 71.7\% to 86.6\%.
+Its lists of most-changed genes use Ensembl IDs while the expression data uses gene names, which
+emptied the evaluation without any error until we matched both.
 
 \begin{table}[h]
 \centering\small
@@ -294,12 +297,17 @@ training, and report genes used only for evaluation. A policy is therefore alway
 genes it never saw.
 
 We compare against four references. Random: a single random set of 100 genes varies by about
-15\% around its median, so we divide every score by the median of 100 random draws. Facility
+15\% around its median, so we divide every score by the median of 100 random draws. An early
+comparison against one random draw failed this way: that draw (0.218) sat near the maximum of
+100 draws (0.221; median 0.178) and made greedy look no better than random. Facility
 location~\citep{nemhauser1978submodular}: greedily choose genes so that every gene has a
 GO-similar measured gene. It reads no signatures, reaches $1.23\times$ and $1.30\times$ random on
 K562 and RPE1, and beats a search over random sets, so it is the baseline to beat. Greedy: add
 the gene that most increases $R$ on the reward genes. It is the direct comparison in the peek
-setting, and we run it over several seeds because one greedy run is a single draw. Upper bound:
+setting. One greedy run is a single draw: GO Jaccard similarities have many ties, which numpy
+1.26 and 2.x break differently, so the same greedy run scored 0.221 in one environment and 0.190
+in the other. We therefore run greedy over several seeds and re-score every chosen set in one
+environment. Upper bound:
 greedy that selects directly on the report genes, which cheats and reaches $2.0$--$2.2\times$
 random.
 
@@ -418,7 +426,7 @@ GO Jaccard. In short, seeing candidate signatures is worth $1.35$--$1.59\times$,
 alone is worth $1.23$--$1.30\times$, and a classical heuristic already gets the latter. The limit
 is what the gene features say about a gene's effect, not the policy.
 
-\subsection{Key insights, unexpected results and implementation challenges}
+\subsection{Key insights}
 \label{sec:insights}
 
 \begin{analysisbox}[Key insights]
@@ -435,31 +443,6 @@ transferable PPO rule each address this, and together they beat greedy in 85 of 
 $1.23$--$1.30\times$ random, and a classical heuristic already gets all of it.
 \end{itemize}
 \end{analysisbox}
-
-\paragraph{Unexpected results.} GEARS predicts no better than the average effect of all
-perturbations, and unseen gene pairs are simply additive while GEARS, trained on those pairs,
-misses them (\Cref{sec:oracle}). Optimizing a noisy reward is worse than not optimizing: with 25
-reward genes, greedy scores 0.168 on held-out genes, below the random median of 0.178. IterPert,
-designed for this very screen, is no better than random on K562, and the advantage our blind
-policy first showed disappeared when we matched its training size to the real problem
-(\Cref{sec:blind}).
-
-\paragraph{Implementation challenges.}
-\begin{itemize}[leftmargin=1.2em,itemsep=1pt,topsep=1pt]
-\item \textit{Noisy baselines.} A random set of 100 genes varies by about 15\%. An early single
-random draw (0.218) sat near the maximum of 100 draws (0.221; median 0.178) and made greedy look
-no better than random, so every score is now relative to the median of 100 draws.
-\item \textit{Greedy is not reproducible.} GO Jaccard similarities have many ties, which numpy 1.26
-and 2.x break differently, so the same greedy run scored 0.221 in one environment and 0.190 in
-the other. We run greedy over several seeds and re-score every chosen set in one environment.
-\item \textit{Silent data errors.} Norman lists 47 of its 283 conditions twice (as X+ctrl and
-ctrl+X); merging them moved the ceiling from 71.7\% to 86.6\%. Its lists of most-changed genes use
-Ensembl IDs while the expression data uses gene names, which silently emptied the evaluation
-until we matched both.
-\item \textit{GEARS tooling.} Its data files need numpy below version 2, so it runs in its own
-environment, and its loader unpickles a 3.7\,GB cache that prediction never uses; skipping it
-cut start-up from over 30 minutes to 11 seconds.
-\end{itemize}
 
 \subsection{Limitations}
 
@@ -479,6 +462,9 @@ Adamson~\citep{adamson2016upr}, Dixit~\citep{dixit2016perturbseq} and the GO gra
 analyses in \Cref{sec:oracle}. The acquisition task runs offline on cached measured signatures
 with no GEARS calls, so it needs no GPU: it runs as CPU jobs on SLURM, about 10--30 CPU-core-hours
 in total. Intermediate results are saved so that figures can be redrawn without recomputation.
+GEARS's data files need numpy below version 2, so it runs in its own environment. Its loader
+also unpickles a 3.7\,GB cache that prediction never uses; skipping it cut start-up from over
+30 minutes to 11 seconds.
 
 \section{Updated Plan and Next Steps [5 points]}
 
